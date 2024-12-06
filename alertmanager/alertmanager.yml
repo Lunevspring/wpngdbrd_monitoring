@@ -1,0 +1,22 @@
+global:
+  resolve_timeout: 1m
+
+route:
+  receiver: 'telegram'
+  group_by: ['alertname']
+
+receivers:
+  - name: 'telegram'
+    webhook_configs:
+      - url: 'https://api.telegram.org/bot7876705087:AAEHMGwTMNL7bjEIXIrbVpuBXvv3e3bc4GU/sendMessage?chat_id=-4557623730&text='
+        send_resolved: true
+
+#  - name: 'email'
+#    email_configs:
+#      - to: 'kirill.lunev@umbrellait.com'
+#        from: 'alertmanager@example.com'
+#        smarthost: 'smtp.example.com:587' 
+#        auth_username: 'kirill.lunev@umbrellait.com'
+#        auth_password: 'Lsg_563899074'
+#        require_tls: true
+#        send_resolved: true

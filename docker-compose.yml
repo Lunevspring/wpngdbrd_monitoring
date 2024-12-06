@@ -1,0 +1,183 @@
+services:
+  wordpress:
+    container_name: wordpress
+    image: wordpress
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "${MAX_SIZE_LOG}"
+        max-file: "${MAX_FILE_LOG}"
+        tag: "{{.Name}}|{{.ImageName}}"
+    ports:
+     - 80:80
+    environment:
+      WORDPRESS_DB_HOST: ${WORDPRESS_DB_HOST}
+      WORDPRESS_DB_USER: ${MYSQL_USER}
+      WORDPRESS_DB_PASSWORD: ${MYSQL_PASSWORD}
+      WORDPRESS_DB_NAME: ${MYSQL_DATABASE}
+      WORDPRESS_CONFIG_EXTRA: ${WORDPRESS_CONFIG_EXTRA}
+    volumes:
+      - wordpress:/var/www/html
+      - ./wordpress/wp-config.php:/var/www/html/wp-config.php
+    command: >
+      /bin/sh -c "
+      docker-entrypoint.sh apache2-foreground & 
+      sleep 7 && 
+      curl -O https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar && 
+      chmod +x wp-cli.phar && 
+      mv wp-cli.phar /usr/local/bin/wp && 
+      wp core install --url=localhost --title=\"${WP_TITLE}\" --admin_user=${WP_ADMIN_USER} --admin_password=\"${WP_ADMIN_PASSWORD}\" --admin_email=test@test.com --allow-root && 
+      echo 'Устанавлваем плагинs...' && 
+      wp plugin install redis-cache --activate --allow-root && wp plugin install daggerhart-openid-connect-generic --activate --allow-root && wp plugin install miniorange-saml-20-single-sign-on --activate --allow-root &&
+      echo 'Установка закончена' && 
+      wait
+      "
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - net1
+      - net2
+
+  db:
+    container_name: mysql
+    image: mysql:8.0
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "${MAX_SIZE_LOG}"
+        max-file: "${MAX_FILE_LOG}"
+        tag: "{{.Name}}|{{.ImageName}}"    
+    volumes:
+      - db:/var/lib/mysql
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+    networks:
+      - net2
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 3s
+      timeout: 3s
+      retries: 5
+     
+  nginx:
+    container_name: nginx
+    image: nginx
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "${MAX_SIZE_LOG}"
+        max-file: "${MAX_FILE_LOG}"
+        tag: "{{.Name}}|{{.ImageName}}"
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./nginx:/etc/nginx/conf.d/
+    depends_on:
+      - wordpress
+    networks:
+      - net1
+
+  redis:
+    container_name: redis
+    image: redis:alpine
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "${MAX_SIZE_LOG}"
+        max-file: "${MAX_FILE_LOG}"
+        tag: "{{.Name}}|{{.ImageName}}"
+    #команда написана в логах при загрузке 
+    command: redis-server redis.conf
+    volumes:
+      - ./redis/redis.conf:/data/redis.conf
+    networks:
+      - net2
+
+  mariadb:
+    image: mariadb:11.5.2
+    container_name: mariadb
+    environment:
+      MYSQL_ROOT_PASSWORD: password
+      MYSQL_DATABASE: keycloak
+      MYSQL_USER: keycloak
+      MYSQL_PASSWORD: password
+    networks:
+      - net3
+    volumes:
+      - mariadb_data:/var/lib/mysql
+    
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:23.0.7
+    container_name: keycloak
+    environment:
+      KC_DB: mariadb
+      KC_DB_URL: jdbc:mariadb://mariadb:3306/keycloak
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: password
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+    command: >
+      start-dev
+    ports:
+      - "8080:8080"
+    depends_on:
+      - mariadb
+    networks:
+      - net1
+      - net3
+
+  node-exporter:
+    container_name: node-exporter
+    image: prom/node-exporter:v1.3.1
+    ports:
+      - "9100:9100"
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.sysfs=/host/sys'
+      - '--collector.filesystem.mount-points-exclude'
+      - '^/(sys|proc|dev|host|etc|rootfs/var/lib/docker/containers|rootfs/var/lib/docker/overlay2|rootfs/run/docker/netns|rootfs/var/lib/docker/aufs)($$|/)'
+    networks:
+      - mon
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.49.1
+    container_name: cadvisor
+    ports:
+      - 8070:8070
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro # Доступ к докер сокету
+      - /:/rootfs:ro # Корневая файловая система система контейнера
+      - /var/run:/var/run:rw # Доступ к системным процессам и метрикам
+      - /sys:/sys:ro # Доступ к системным данным
+      - /var/lib/docker/containers:/var/lib/docker/containers # Доступ к данным докер на ubuntu
+      - /dev/disk:/dev/disk:ro
+
+    networks:
+      - mon
+    command:
+      - '-port=8070'
+
+volumes:
+  wordpress:
+  mariadb_data:
+  db:
+  nginx:
+
+
+networks:
+  net1: # для wp и nginx
+  net2: # для wp, mysql, redis
+  net3:
+    driver: bridge
+    name: keycloaknet # для keycloak, mariadb
+  mon:
+    name: monitoring

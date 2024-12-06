@@ -1,0 +1,68 @@
+services:
+  prometheus:
+    container_name: prometheus
+    image: prom/prometheus:latest
+    volumes:
+    - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+    - ./prometheus/rules.yml:/etc/prometheus/rules.yml
+    ports:
+    - 9090:9090
+    networks:
+    - mon
+
+  grafana:
+    container_name: grafana
+    image: grafana/grafana:main-ubuntu
+    ports:
+    - "3000:3000"
+    volumes:
+    - ./provisioning:/etc/grafana/provisioning
+    networks:
+    - mon
+    depends_on:
+    - prometheus
+    - loki
+
+  alertmanager:
+    image: prom/alertmanager:v0.25.0
+    container_name: alertmanager
+    ports:
+    - 9093:9093
+    volumes:
+    - ./alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml
+    networks:
+    - mon
+
+  loki:
+    image: grafana/loki:latest
+    container_name: loki
+    ports:
+    - "3100:3100"
+    volumes:
+    - ./loki/loki-config.yaml:/etc/loki/loki-config.yaml
+    command: 
+      -config.file=/etc/loki/local-config.yaml
+      -validation.allow-structured-metadata=false
+    networks:
+    - mon
+
+  promtail:
+    image: grafana/promtail:2.9.2
+    container_name: promtail
+    volumes:
+    - /var/run/docker.sock:/var/run/docker.sock
+    - /var/log:/var/log:ro # Доступ к логам системы
+    - ./promtail/promtail-config.yaml:/etc/promtail/promtail-config.yaml # Конфигурация promtail
+    - /var/lib/docker/containers:/var/lib/docker/containers # Доступ к логам системы на ubuntu
+    command: -config.file=/etc/promtail/promtail-config.yaml -config.expand-env=true
+    ports:
+    - 9080:9080
+    networks:
+    - mon
+
+networks:
+  mon:
+    external: true
+    name: monitoring
+
+
