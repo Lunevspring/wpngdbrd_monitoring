@@ -59,9 +59,9 @@ services:
       - net2
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
-      interval: 3s
-      timeout: 3s
-      retries: 5
+      interval: 30s
+      timeout: 30s
+      retries: 10
      
   nginx:
     container_name: nginx
